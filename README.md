@@ -16,7 +16,7 @@ Steam と Epic Games の**所有ゲームの横断検索**に特化した Androi
 
 ## ビルド
 
-1. Android Studio（API 37対応版）で **このフォルダを Open**。
+1. Android Studio（API 36対応版）で **このフォルダを Open**。
 2. JDK 17、Android SDK Platform 37 を入れて Gradle Sync。
 3. Gradle 9.3.1 をインストールし、`gradle :app:assembleDebug` でビルド。あるいはAndroid StudioのGradle設定をローカルGradleに切り替えて Build > Build APK(s) を実行してください。
 4. GitHub Actions は push / PR / 手動実行でDebug APKをビルドし、成果物 `game-shelf-debug-apk` を公開します。Gradle Wrapper の起動スクリプトとJARは未同梱です。

@@ -4,7 +4,7 @@ plugins {
 }
 android {
     namespace = "dev.gameshelf.mobile"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.gameshelf.mobile"
