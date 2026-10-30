@@ -5,11 +5,12 @@ Steam と Epic Games の**所有ゲームの横断検索**に特化した Androi
 ## 機能
 
 - 2画面（ライブラリ／設定）
-- 2列のグリッド（画面幅に応じて自動調整）とリストの切替
+- 横長アートを主役にしたコンパクトなグリッド（画面幅に応じて自動調整）とリストの切替
 - 所有ゲーム名の部分一致・大文字小文字無視の検索
 - すべて／Steam／Epic Games の絞り込み
 - タイトル昇順／降順、プレイ時間降順、ストア順でソート
 - 手動同期・起動時同期・オフラインでも前回の一覧を表示
+- 装飾を抑えた密度の高いUI（カード枠・大見出し・バッジ重畳を廃止し、設定フォームは接続済みなら折りたたみ）
 - Steam は公式 GetOwnedGames API。Epic は Legendary が参照する非公開 API
 - 認証情報を Android Keystore の AES-GCM で暗号化。Android Auto Backup は無効
 - 独自サーバー、広告・解析 SDK はなし
@@ -61,3 +62,10 @@ Steam と Epic Games の**所有ゲームの横断検索**に特化した Androi
 - https://github.com/legendary-gl/legendary/blob/master/legendary/core.py
 - https://developer.android.com/develop/ui/compose/setup-compose-dependencies-and-compiler
 - https://developer.android.com/privacy-and-security/cryptography
+
+## 既存 Debug APK からの更新について
+
+GitHub Actions は現状、Runner ごとに生成される Android Debug 証明書で APK に署名します。
+そのため異なる Actions 実行間で作られた APK は、既存アプリに上書きインストールできない場合があります。
+再インストールすると端末内に保存された API キーや Epic トークンは消えるため、必要なら先に各アカウントの認証方法を確認してください。
+継続利用する場合は、GitHub Actions Secrets に保管する専用の署名鍵で毎回署名する構成への切り替えを推奨します。
