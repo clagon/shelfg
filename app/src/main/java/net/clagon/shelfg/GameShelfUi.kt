@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -34,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 // Restraint is intentional: game artwork is the primary accent, not the app chrome.
@@ -143,7 +147,8 @@ private fun FloatingNavigation(
 ) {
     Row(
         modifier = modifier
-            .width(252.dp)
+            .fillMaxWidth(0.80f)
+            .widthIn(max = 350.dp)
             .height(60.dp)
             .clip(RoundedCornerShape(32.dp))
             .background(Color(0xF4151922))
@@ -209,22 +214,38 @@ private fun LibraryScreen(
     modifier: Modifier = Modifier
 ) {
     var query by remember { mutableStateOf("") }
-    var selectedStore by remember { mutableStateOf<Store?>(null) }
     var gridMode by remember { mutableStateOf(true) }
     var sort by remember { mutableStateOf(SortOrder.TITLE_ASC) }
     var showSort by remember { mutableStateOf(false) }
-    val filtered = remember(games, query, selectedStore, sort) {
-        val items = games.filter {
-            (selectedStore == null || it.store == selectedStore) &&
-                it.title.contains(query.trim(), ignoreCase = true)
-        }
-        when (sort) {
-            SortOrder.TITLE_ASC -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
-            SortOrder.TITLE_DESC -> items.sortedWith(compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.title })
-            SortOrder.PLAYTIME -> items.sortedWith(compareByDescending<OwnedGame> { it.playtimeMinutes ?: -1 }.thenBy { it.title })
-            SortOrder.STORE -> items.sortedWith(compareBy<OwnedGame> { it.store.name }.thenBy { it.title })
+    val scope = rememberCoroutineScope()
+    // HorizontalPager owns the selected store, so tab taps and swipes always agree.
+    val pagerState = rememberPagerState(pageCount = { 3 })
+    val stores = listOf<Store?>(null, Store.STEAM, Store.EPIC)
+    val selectedStore = stores[pagerState.currentPage]
+    // Separate grid scroll positions keep each store's position when switching pages.
+    val gridStates = listOf(rememberLazyGridState(), rememberLazyGridState(), rememberLazyGridState())
+    var previousSort by remember { mutableStateOf(sort) }
+    LaunchedEffect(sort) {
+        if (previousSort != sort) {
+            previousSort = sort
+            // Jump, rather than animate through hundreds of items when sorting a large library.
+            gridStates.forEach { it.scrollToItem(0) }
         }
     }
+    val sortedMatches = remember(games, query, sort) {
+        val matches = games.filter { it.title.contains(query.trim(), ignoreCase = true) }
+        when (sort) {
+            SortOrder.TITLE_ASC -> matches.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+            SortOrder.TITLE_DESC -> matches.sortedWith(compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.title })
+            SortOrder.PLAYTIME -> matches.sortedWith(compareByDescending<OwnedGame> { it.playtimeMinutes ?: -1 }.thenBy { it.title })
+            SortOrder.STORE -> matches.sortedWith(compareBy<OwnedGame> { it.store.name }.thenBy { it.title })
+        }
+    }
+    val pageGames = remember(sortedMatches) {
+        listOf(sortedMatches, sortedMatches.filter { it.store == Store.STEAM },
+            sortedMatches.filter { it.store == Store.EPIC })
+    }
+    val filtered = pageGames[pagerState.currentPage]
 
     Column(modifier.fillMaxSize()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
@@ -255,7 +276,9 @@ private fun LibraryScreen(
                 query = query,
                 onQueryChange = { query = it },
                 selectedStore = selectedStore,
-                onSelectStore = { selectedStore = it }
+                onSelectStore = { store ->
+                    scope.launch { pagerState.animateScrollToPage(stores.indexOf(store)) }
+                }
             )
             Spacer(Modifier.height(8.dp))
             Row(
@@ -291,7 +314,10 @@ private fun LibraryScreen(
                         SortOrder.entries.forEach { choice ->
                             DropdownMenuItem(
                                 text = { Text(choice.label, color = OnBase, fontSize = 14.sp) },
-                                onClick = { sort = choice; showSort = false },
+                                onClick = {
+                                    if (sort != choice) sort = choice
+                                    showSort = false
+                                },
                                 trailingIcon = {
                                     if (choice == sort) Icon(Icons.Outlined.Check, null,
                                         tint = Accent, modifier = Modifier.size(17.dp))
@@ -313,22 +339,30 @@ private fun LibraryScreen(
         if (syncing) LinearProgressIndicator(
             modifier = Modifier.fillMaxWidth().height(2.dp), color = Accent, trackColor = Background
         )
-        if (filtered.isEmpty()) {
-            EmptyLibrary(
-                hasGames = games.isNotEmpty(), hasConnections = hasConnections,
-                onSettings = onSettings, onSample = onSample, isSample = isSample,
-                modifier = Modifier.weight(1f).padding(bottom = 88.dp)
-            )
-        } else {
-            LazyVerticalGrid(
-                columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
-                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 100.dp),
-                verticalArrangement = Arrangement.spacedBy(if (gridMode) 21.dp else 0.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(filtered, key = { "${it.store}:${it.id}" }) { game ->
-                    if (gridMode) GridGameCard(game) else ListGameRow(game)
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.weight(1f),
+            key = { it }
+        ) { page ->
+            val items = pageGames[page]
+            if (items.isEmpty()) {
+                EmptyLibrary(
+                    hasGames = games.isNotEmpty(), hasConnections = hasConnections,
+                    onSettings = onSettings, onSample = onSample, isSample = isSample,
+                    modifier = Modifier.fillMaxSize().padding(bottom = 88.dp)
+                )
+            } else {
+                LazyVerticalGrid(
+                    state = gridStates[page],
+                    columns = if (gridMode) GridCells.Fixed(2) else GridCells.Fixed(1),
+                    contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 100.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (gridMode) 21.dp else 0.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(items, key = { "${it.store}:${it.id}" }) { game ->
+                        if (gridMode) GridGameCard(game) else ListGameRow(game)
+                    }
                 }
             }
         }
@@ -443,25 +477,39 @@ private fun StoreSegment(
 
 @Composable
 private fun GameArtwork(game: OwnedGame, poster: Boolean, modifier: Modifier = Modifier) {
-    // Steam offers vertical library art on most games. Use it for the reference-style poster
-    // layout, but fall back to the existing cached banner if no vertical asset exists.
-    val steamPosterUrl = if (poster && game.store == Store.STEAM && game.id.all { it.isDigit() }) {
-        "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${game.id}/library_600x900.jpg"
-    } else null
-    var posterFailed by remember(game.store, game.id, poster) { mutableStateOf(false) }
-    val imageUrl = if (steamPosterUrl != null && !posterFailed) steamPosterUrl else game.coverUrl
-    val isBannerFallback = poster && game.store == Store.STEAM && posterFailed
+    // Steam serves localized assets using a language suffix. Check Japanese art first,
+    // then the regular art, then the banner supplied by the owned-games API.
+    val steamAssetPrefix = if (game.store == Store.STEAM &&
+        game.id.isNotBlank() && game.id.all { it.isDigit() }
+    ) "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${game.id}/" else null
+    val candidates = remember(game.store, game.id, poster, game.coverUrl) {
+        buildList {
+            if (steamAssetPrefix != null) {
+                if (poster) {
+                    add(steamAssetPrefix + "library_600x900_japanese.jpg")
+                    add(steamAssetPrefix + "library_600x900.jpg")
+                }
+                add(steamAssetPrefix + "header_japanese.jpg")
+            }
+            game.coverUrl?.takeIf { it.startsWith("https://") }?.let { add(it) }
+        }.distinct()
+    }
+    var candidateIndex by remember(game.store, game.id, poster, game.coverUrl) {
+        mutableIntStateOf(0)
+    }
+    val imageUrl = candidates.getOrNull(candidateIndex)
+    val isBannerFallback = poster && steamAssetPrefix != null && candidateIndex >= 2
     Box(
         modifier.clip(RoundedCornerShape(11.dp)).background(Surface),
         contentAlignment = Alignment.Center
     ) {
-        if (!imageUrl.isNullOrBlank()) {
+        if (imageUrl != null) {
             AsyncImage(
                 model = imageUrl,
                 contentDescription = "${game.title} の画像",
                 contentScale = if (isBannerFallback) ContentScale.Fit else ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
-                onError = { if (steamPosterUrl != null && !posterFailed) posterFailed = true }
+                onError = { candidateIndex++ }
             )
         } else {
             Icon(Icons.Outlined.VideogameAsset, null, tint = Muted.copy(alpha = 0.55f),
@@ -679,7 +727,7 @@ private fun SettingsScreen(
         Text("認証情報は端末内で暗号化して保存されます。Epic連携には非公開APIを使用します。",
             color = Muted, fontSize = 11.sp, lineHeight = 17.sp)
         Spacer(Modifier.height(10.dp))
-        Text("Game Shelf  ·  0.4", color = Muted, fontSize = 11.sp)
+        Text("Game Shelf  ·  0.5", color = Muted, fontSize = 11.sp)
     }
 }
 

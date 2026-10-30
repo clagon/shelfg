@@ -232,17 +232,7 @@ class GameRepository(context: Context) {
                             }
                         }
                         val images = info?.optJSONArray("keyImages") ?: JSONArray()
-                        var cover: String? = null
-                        for (type in listOf("DieselGameBoxTall", "DieselGameBox", "OfferImageTall", "Thumbnail")) {
-                            for (i in 0 until images.length()) {
-                                val image = images.optJSONObject(i)
-                                if (image?.optString("type") == type && image.optString("url").startsWith("https://")) {
-                                    cover = image.optString("url")
-                                    break
-                                }
-                            }
-                            if (cover != null) break
-                        }
+                        val cover = pickEpicCover(images)
                         OwnedGame(uniqueId, info?.optString("title")?.takeIf { it.isNotBlank() }
                             ?: item.optString("appName"), Store.EPIC, cover)
                     } catch (_: Exception) {
@@ -252,6 +242,32 @@ class GameRepository(context: Context) {
                 }
             }
         }.awaitAll().filterNotNull()
+    }
+
+    /** The catalog is queried with country=JP and locale=ja. Prefer explicitly tagged
+     * Japanese assets if the API returns multiple variants of the same artwork type. */
+    private fun pickEpicCover(images: JSONArray): String? {
+        val tallFirst = listOf("DieselGameBoxTall", "OfferImageTall", "DieselGameBox", "Thumbnail")
+        for (type in tallFirst) {
+            val matches = (0 until images.length()).mapNotNull { index ->
+                images.optJSONObject(index)?.takeIf { image ->
+                    image.optString("type") == type && image.optString("url").startsWith("https://")
+                }
+            }
+            if (matches.isEmpty()) continue
+            fun languageRank(image: JSONObject): Int {
+                val language = image.optString("locale").ifBlank { image.optString("language") }
+                return when {
+                    language.equals("ja", ignoreCase = true) ||
+                        language.startsWith("ja-", ignoreCase = true) ||
+                        language.equals("japanese", ignoreCase = true) -> 0
+                    language.isBlank() -> 1
+                    else -> 2
+                }
+            }
+            return matches.minByOrNull(::languageRank)?.optString("url")
+        }
+        return null
     }
 
     private fun httpJson(
