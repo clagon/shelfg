@@ -1,4 +1,4 @@
-package dev.gameshelf.mobile
+package net.clagon.shelfg
 
 import android.content.Intent
 import android.net.Uri

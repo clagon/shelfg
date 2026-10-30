@@ -37,12 +37,40 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-      - name: Build debug APK
+      - name: Compile debug APK
         run: gradle --no-daemon :app:assembleDebug
-      - name: Upload installable APK
+
+      # PRs compile without access to signing secrets, and publish no APKs.
+      - name: Restore signing key from repository secrets
+        if: github.event_name != 'pull_request'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SHELFG_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.SHELFG_SIGNING_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Set SHELFG_KEYSTORE_BASE64 and SHELFG_SIGNING_PASSWORD in repository Actions secrets."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/shelfg-signing-key.p12"
+          keytool -list -storetype PKCS12 -keystore "$RUNNER_TEMP/shelfg-signing-key.p12" \
+            -storepass "$KEYSTORE_PASSWORD" -alias shelfg > /dev/null
+      - name: Build signed release APK
+        if: github.event_name != 'pull_request'
+        env:
+          SHELFG_SIGNING_KEYSTORE: ${{ runner.temp }}/shelfg-signing-key.p12
+          SHELFG_SIGNING_PASSWORD: ${{ secrets.SHELFG_SIGNING_PASSWORD }}
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Verify APK signature
+        if: github.event_name != 'pull_request'
+        run: |
+          "$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner" verify --print-certs \
+            app/build/outputs/apk/release/app-release.apk
+      - name: Upload signed release APK
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: game-shelf-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: shelfg-signed-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14

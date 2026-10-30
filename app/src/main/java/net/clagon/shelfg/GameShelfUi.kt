@@ -1,4 +1,4 @@
-package dev.gameshelf.mobile
+package net.clagon.shelfg
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*

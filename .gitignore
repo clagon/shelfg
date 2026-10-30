@@ -8,3 +8,9 @@ local.properties
 *.apk
 *.aab
 .DS_Store
+
+# Signing keys remain private
+*.p12
+*.jks
+*.keystore
+keystore.properties

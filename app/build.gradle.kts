@@ -3,23 +3,37 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
-    namespace = "dev.gameshelf.mobile"
+    namespace = "net.clagon.shelfg"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "dev.gameshelf.mobile"
+        applicationId = "net.clagon.shelfg"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // Key material is supplied at build time; it is never committed to git.
+    val signingKeystore = providers.environmentVariable("SHELFG_SIGNING_KEYSTORE").orNull
+    val signingPassword = providers.environmentVariable("SHELFG_SIGNING_PASSWORD").orNull
+    signingConfigs {
+        if (!signingKeystore.isNullOrBlank() && !signingPassword.isNullOrBlank()) {
+            create("distribution") {
+                storeFile = file(signingKeystore)
+                storePassword = signingPassword
+                keyAlias = "shelfg"
+                keyPassword = signingPassword
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfigs.findByName("distribution")?.let { signingConfig = it }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

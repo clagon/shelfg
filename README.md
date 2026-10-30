@@ -1,6 +1,6 @@
 # Game Shelf — Android (Kotlin / Compose)
 
-Steam と Epic Games の**所有ゲームの横断検索**に特化した Android アプリのソースコードです。アカウントが未接続の場合は空ライブラリを表示し、「サンプルでUIを確認」から明示的にデモデータを表示できます。`preview.html` はブラウザで見られるUIモックで、認証・同期は実行しません。
+Steam と Epic Games の**所有ゲームの横断検索**に特化した Android アプリのソースコードです。アカウントが未接続の場合は空ライブラリを表示し、「サンプルでUIを確認」から明示的にデモデータを表示できます。
 
 ## 機能
 
@@ -20,9 +20,9 @@ Steam と Epic Games の**所有ゲームの横断検索**に特化した Androi
 1. Android Studio（API 37対応版）で **このフォルダを Open**。
 2. JDK 17、Android SDK Platform 37 を入れて Gradle Sync。
 3. Gradle 9.3.1 をインストールし、`gradle :app:assembleDebug` でビルド。あるいはAndroid StudioのGradle設定をローカルGradleに切り替えて Build > Build APK(s) を実行してください。
-4. GitHub Actions は push / PR / 手動実行でDebug APKをビルドし、成果物 `game-shelf-debug-apk` を公開します。Gradle Wrapper の起動スクリプトとJARは未同梱です。
+4. GitHub Actionsではpush・PR・手動実行でDebugビルドを検証します。pushと手動実行ではSecrets設定後に署名済みRelease APKを作り、`shelfg-signed-release-apk` にアップロードします。
 
-**注意:** この環境には Android SDK / Gradle がないため、実機でのビルドと API 接続テストは実施していません。コードは実装候補であり、APK完成品ではありません。
+**注意:** CIでコンパイルを確認します。実機でのEpic認証・同期は別途確認が必要です。
 
 ## Steam 設定
 
@@ -63,9 +63,17 @@ Steam と Epic Games の**所有ゲームの横断検索**に特化した Androi
 - https://developer.android.com/develop/ui/compose/setup-compose-dependencies-and-compiler
 - https://developer.android.com/privacy-and-security/cryptography
 
-## 既存 Debug APK からの更新について
 
-GitHub Actions は現状、Runner ごとに生成される Android Debug 証明書で APK に署名します。
-そのため異なる Actions 実行間で作られた APK は、既存アプリに上書きインストールできない場合があります。
-再インストールすると端末内に保存された API キーや Epic トークンは消えるため、必要なら先に各アカウントの認証方法を確認してください。
-継続利用する場合は、GitHub Actions Secrets に保管する専用の署名鍵で毎回署名する構成への切り替えを推奨します。
+## パッケージ名・固定署名（v0.3.0）
+
+- パッケージID / namespace は `net.clagon.shelfg`。
+- **以前の `dev.gameshelf.mobile` は別アプリになります。** 旧APKとは上書き更新できず、認証情報も自動移行されません。旧アプリを残して新しいアプリをインストールできます。
+- 署名用PKCS#12鍵とパスワードは別途配布した `shelfg-signing-backup.zip` に含まれます。鍵やパスワードを公開リポジトリにpushしないでください。
+- GitHub の [Settings → Secrets and variables → Actions](https://github.com/clagon/shelfg/settings/secrets/actions) で次の Repository secrets を登録してください：
+  - `SHELFG_KEYSTORE_BASE64`：`shelfg-signing-secrets.txt` の同名欄のValue全文（1行）。
+  - `SHELFG_SIGNING_PASSWORD`：同ファイルの同名欄のValue。
+- **この2つのSecretsがない場合、mainの署名済みAPKビルドは意図的に失敗**します。鍵が毎回変わるDebug APKは配布しません。
+- 登録後、[Actions → Android APK](https://github.com/clagon/shelfg/actions/workflows/android.yml) の `Run workflow` で署名済み `app-release.apk` を作成できます。
+- Pull Requestから秘密情報を使用せず、Debugのコンパイルチェックのみ行います。
+- ローカルで署名する場合、環境変数 `SHELFG_SIGNING_KEYSTORE`（p12鍵の絶対パス）と `SHELFG_SIGNING_PASSWORD` を指定します。
+- **今後は署名鍵とパッケージIDを固定し、更新時に `versionCode` を増加**させれば上書き更新ができます。鍵を紛失すると同じアプリIDでの更新が困難になるため、署名鍵のZIPを安全な場所へバックアップしてください。
