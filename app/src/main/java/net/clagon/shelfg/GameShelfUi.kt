@@ -1,5 +1,6 @@
 package net.clagon.shelfg
 
+import android.content.Context
 import androidx.compose.foundation.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.animation.Crossfade
@@ -9,6 +10,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -21,9 +23,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -213,9 +217,20 @@ private fun LibraryScreen(
     onSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val displayPrefs = remember(context) {
+        context.applicationContext.getSharedPreferences("library_display_v1", Context.MODE_PRIVATE)
+    }
     var query by remember { mutableStateOf("") }
-    var gridMode by remember { mutableStateOf(true) }
-    var sort by remember { mutableStateOf(SortOrder.TITLE_ASC) }
+    var gridMode by remember {
+        mutableStateOf(displayPrefs.getBoolean("grid_mode", true))
+    }
+    var sort by remember {
+        mutableStateOf(
+            SortOrder.entries.firstOrNull { it.name == displayPrefs.getString("sort_order", "TITLE_ASC") }
+                ?: SortOrder.TITLE_ASC
+        )
+    }
     var showSort by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // HorizontalPager owns the selected store, so tab taps and swipes always agree.
@@ -276,6 +291,7 @@ private fun LibraryScreen(
                 query = query,
                 onQueryChange = { query = it },
                 selectedStore = selectedStore,
+                pagerState = pagerState,
                 onSelectStore = { store ->
                     scope.launch { pagerState.animateScrollToPage(stores.indexOf(store)) }
                 }
@@ -315,7 +331,10 @@ private fun LibraryScreen(
                             DropdownMenuItem(
                                 text = { Text(choice.label, color = OnBase, fontSize = 14.sp) },
                                 onClick = {
-                                    if (sort != choice) sort = choice
+                                    if (sort != choice) {
+                                        sort = choice
+                                        displayPrefs.edit().putString("sort_order", choice.name).apply()
+                                    }
                                     showSort = false
                                 },
                                 trailingIcon = {
@@ -326,7 +345,10 @@ private fun LibraryScreen(
                         }
                     }
                 }
-                IconButton(onClick = { gridMode = !gridMode }, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = {
+                    gridMode = !gridMode
+                    displayPrefs.edit().putBoolean("grid_mode", gridMode).apply()
+                }, modifier = Modifier.size(40.dp)) {
                     Icon(
                         if (gridMode) Icons.Outlined.ViewList else Icons.Outlined.GridView,
                         contentDescription = if (gridMode) "リスト表示へ" else "グリッド表示へ",
@@ -374,6 +396,7 @@ private fun StoreSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     selectedStore: Store?,
+    pagerState: PagerState,
     onSelectStore: (Store?) -> Unit
 ) {
     var searchExpanded by remember { mutableStateOf(false) }
@@ -439,12 +462,29 @@ private fun StoreSearchBar(
                     }
                     Box(Modifier.width(1.dp).height(22.dp).background(Hairline))
                     Spacer(Modifier.width(5.dp))
-                    StoreSegment("すべて", selectedStore == null, { onSelectStore(null) },
-                        modifier = Modifier.weight(1f))
-                    StoreSegment("Steam", selectedStore == Store.STEAM, { onSelectStore(Store.STEAM) },
-                        modifier = Modifier.weight(1f))
-                    StoreSegment("Epic", selectedStore == Store.EPIC, { onSelectStore(Store.EPIC) },
-                        modifier = Modifier.weight(1f))
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                        val cellWidth = maxWidth / 3
+                        // Read offset in the graphics layer, so the highlight follows the finger
+                        // frame-by-frame without triggering a full recomposition of the grid.
+                        Box(
+                            Modifier.width(cellWidth).fillMaxHeight()
+                                .graphicsLayer {
+                                    translationX = cellWidth.toPx() *
+                                        (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+                                            .coerceIn(0f, 2f)
+                                }
+                                .clip(RoundedCornerShape(25.dp))
+                                .background(Raised)
+                        )
+                        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                            StoreSegment("すべて", selectedStore == null, { onSelectStore(null) },
+                                modifier = Modifier.weight(1f))
+                            StoreSegment("Steam", selectedStore == Store.STEAM, { onSelectStore(Store.STEAM) },
+                                modifier = Modifier.weight(1f))
+                            StoreSegment("Epic", selectedStore == Store.EPIC, { onSelectStore(Store.EPIC) },
+                                modifier = Modifier.weight(1f))
+                        }
+                    }
                 }
             }
         }
@@ -461,7 +501,6 @@ private fun StoreSegment(
     Box(
         modifier.fillMaxHeight()
             .clip(RoundedCornerShape(25.dp))
-            .background(if (selected) Raised else Color.Transparent)
             .selectable(selected = selected, role = Role.Tab, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -475,14 +514,27 @@ private fun StoreSegment(
     }
 }
 
+// Remember the last *working* artwork URL for a week. This avoids retrying multiple
+// non-existent localized images every time LazyVerticalGrid composes an item again.
+private const val ARTWORK_HINT_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
+
 @Composable
 private fun GameArtwork(game: OwnedGame, poster: Boolean, modifier: Modifier = Modifier) {
-    // Steam serves localized assets using a language suffix. Check Japanese art first,
-    // then the regular art, then the banner supplied by the owned-games API.
+    val context = LocalContext.current
+    val prefs = remember(context) {
+        context.applicationContext.getSharedPreferences("artwork_hints_v1", Context.MODE_PRIVATE)
+    }
+    val hintKey = "${game.store}:${game.id}:${if (poster) "poster" else "banner"}"
+    val preferredUrl = remember(hintKey, game.coverUrl) {
+        val savedAt = prefs.getLong("$hintKey:at", 0L)
+        if (System.currentTimeMillis() - savedAt in 0..ARTWORK_HINT_MAX_AGE_MS) {
+            prefs.getString("$hintKey:url", null)
+        } else null
+    }
     val steamAssetPrefix = if (game.store == Store.STEAM &&
         game.id.isNotBlank() && game.id.all { it.isDigit() }
     ) "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${game.id}/" else null
-    val candidates = remember(game.store, game.id, poster, game.coverUrl) {
+    val candidates = remember(game.store, game.id, poster, game.coverUrl, preferredUrl) {
         buildList {
             if (steamAssetPrefix != null) {
                 if (poster) {
@@ -490,15 +542,21 @@ private fun GameArtwork(game: OwnedGame, poster: Boolean, modifier: Modifier = M
                     add(steamAssetPrefix + "library_600x900.jpg")
                 }
                 add(steamAssetPrefix + "header_japanese.jpg")
+                add(steamAssetPrefix + "header.jpg")
             }
             game.coverUrl?.takeIf { it.startsWith("https://") }?.let { add(it) }
-        }.distinct()
+        }.distinct().let { list ->
+            if (preferredUrl != null && preferredUrl in list) {
+                listOf(preferredUrl) + list.filterNot { it == preferredUrl }
+            } else list
+        }
     }
-    var candidateIndex by remember(game.store, game.id, poster, game.coverUrl) {
+    var candidateIndex by remember(game.store, game.id, poster, game.coverUrl, preferredUrl) {
         mutableIntStateOf(0)
     }
     val imageUrl = candidates.getOrNull(candidateIndex)
-    val isBannerFallback = poster && steamAssetPrefix != null && candidateIndex >= 2
+    val isBannerFallback = poster && steamAssetPrefix != null &&
+        imageUrl != null && !imageUrl.contains("library_600x900")
     Box(
         modifier.clip(RoundedCornerShape(11.dp)).background(Surface),
         contentAlignment = Alignment.Center
@@ -509,7 +567,15 @@ private fun GameArtwork(game: OwnedGame, poster: Boolean, modifier: Modifier = M
                 contentDescription = "${game.title} の画像",
                 contentScale = if (isBannerFallback) ContentScale.Fit else ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
-                onError = { candidateIndex++ }
+                onSuccess = {
+                    if (prefs.getString("$hintKey:url", null) != imageUrl) {
+                        prefs.edit()
+                            .putString("$hintKey:url", imageUrl)
+                            .putLong("$hintKey:at", System.currentTimeMillis())
+                            .apply()
+                    }
+                },
+                onError = { if (candidateIndex < candidates.size) candidateIndex++ }
             )
         } else {
             Icon(Icons.Outlined.VideogameAsset, null, tint = Muted.copy(alpha = 0.55f),

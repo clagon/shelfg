@@ -7,12 +7,31 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // One image loader shared by both pages: keep decoded covers in RAM and original
+        // images on disk so switching tabs doesn't require new network requests.
+        SingletonImageLoader.setSafe { appContext ->
+            ImageLoader.Builder(appContext)
+                .memoryCache {
+                    MemoryCache.Builder().maxSizePercent(appContext, 0.20).build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(appContext.cacheDir.resolve("game_cover_cache"))
+                        .maxSizeBytes(256L * 1024L * 1024L)
+                        .build()
+                }
+                .build()
+        }
         val repository = GameRepository(applicationContext)
         setContent {
             val scope = rememberCoroutineScope()
