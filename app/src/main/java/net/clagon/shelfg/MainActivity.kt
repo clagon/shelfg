@@ -26,7 +26,7 @@ class MainActivity : ComponentActivity() {
                 }
                 .diskCache {
                     DiskCache.Builder()
-                        .directory(appContext.cacheDir.resolve("game_cover_cache"))
+                        .directory(appContext.cacheDir.resolve("game_cover_cache").toPath())
                         .maxSizeBytes(256L * 1024L * 1024L)
                         .build()
                 }
