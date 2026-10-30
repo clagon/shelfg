@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
+import okio.Path.Companion.toPath
 import coil3.memory.MemoryCache
 import kotlinx.coroutines.launch
 
@@ -26,7 +27,7 @@ class MainActivity : ComponentActivity() {
                 }
                 .diskCache {
                     DiskCache.Builder()
-                        .directory(appContext.cacheDir.resolve("game_cover_cache").toPath())
+                        .directory(appContext.cacheDir.resolve("game_cover_cache").absolutePath.toPath())
                         .maxSizeBytes(256L * 1024L * 1024L)
                         .build()
                 }
